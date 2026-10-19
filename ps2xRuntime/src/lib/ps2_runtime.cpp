@@ -15,6 +15,10 @@
 #include "ps2x/iop/iop_subsystem.h"
 
 #include <iostream>
+#include <map>
+#include <chrono>
+#include <mutex>
+#include <cstdlib>
 #include <stdexcept>
 #include <fstream>
 #include <algorithm>
@@ -1483,6 +1487,37 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encod
     const uint32_t syscallId = (encodedSyscallId != 0u)
                                    ? encodedSyscallId
                                    : getRegU32(ctx, 3); // $v1 / $3 is the EE kernel syscall number
+
+    // Diagnóstico opcional: PS2X_TRACE_SYSCALLS=1 resume cada 2 s qué syscalls
+    // llama el juego y desde dónde (útil para ver en qué espera se quedó).
+    {
+        static const bool traceSyscalls = []()
+        {
+            const char *v = std::getenv("PS2X_TRACE_SYSCALLS");
+            return v && v[0] == '1';
+        }();
+        if (traceSyscalls)
+        {
+            static std::mutex traceMutex;
+            static std::map<std::pair<uint32_t, uint32_t>, uint64_t> counts;
+            static auto lastDump = std::chrono::steady_clock::now();
+            std::lock_guard<std::mutex> lock(traceMutex);
+            ++counts[{syscallId, getRegU32(ctx, 31)}];
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastDump > std::chrono::seconds(2))
+            {
+                lastDump = now;
+                std::cerr << "[trace-syscalls]";
+                for (const auto &entry : counts)
+                {
+                    std::cerr << " id=0x" << std::hex << entry.first.first << "@ra=0x" << entry.first.second
+                              << std::dec << " x" << entry.second << ";";
+                }
+                std::cerr << std::endl;
+                counts.clear();
+            }
+        }
+    }
 
     if (ps2_syscalls::dispatchNumericSyscall(syscallId, rdram, ctx, this))
     {

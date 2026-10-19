@@ -160,14 +160,49 @@ namespace ps2_stubs
         TODO_NAMED("sceDmaRecv", rdram, ctx, runtime);
     }
 
+    namespace
+    {
+        // Recepción en modo normal (fromSPR, fromIPU, ...): el canal copia QWC
+        // quadwords hacia MADR. Para fromSPR la dirección de origen en el
+        // scratchpad es el registro SADR que el juego deja configurado antes.
+        int32_t submitDmaRecvNormal(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            if (!runtime)
+            {
+                return -1;
+            }
+
+            const uint32_t channelBase = resolveDmaChannelBase(rdram, getRegU32(ctx, 4));
+            if (channelBase == 0)
+            {
+                return -1;
+            }
+
+            PS2Memory &mem = runtime->memory();
+            const uint32_t configuredChcr = mem.readIORegister(channelBase + 0x00u);
+            const uint32_t chcr = 0x00000100u | (configuredChcr & 0x00000080u); // STR=1, DIR=0, modo normal; conserva TIE.
+
+            mem.writeIORegister(channelBase + 0x20u, normalizeQwcFromArg(getRegU32(ctx, 6)) & 0xFFFFu);
+            mem.writeIORegister(channelBase + 0x10u, toDmaPhys(getRegU32(ctx, 5)));
+            mem.writeIORegister(channelBase + 0x00u, chcr);
+            mem.processPendingTransfers();
+
+            for (const uint32_t cause : mem.consumeCompletedDmacCauses())
+            {
+                ps2_syscalls::dispatchDmacHandlersForCause(rdram, runtime, cause);
+            }
+            return 0;
+        }
+    }
+
     void sceDmaRecvI(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        TODO_NAMED("sceDmaRecvI", rdram, ctx, runtime);
+        setReturnS32(ctx, submitDmaRecvNormal(rdram, ctx, runtime));
     }
 
     void sceDmaRecvN(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        TODO_NAMED("sceDmaRecvN", rdram, ctx, runtime);
+        setReturnS32(ctx, submitDmaRecvNormal(rdram, ctx, runtime));
     }
 
     void sceDmaReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

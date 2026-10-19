@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <map>
+#include <iostream>
 #include "runtime/ee_scheduler.h"
 
 #include "ps2_log.h"
@@ -423,7 +426,9 @@ void EeScheduler::setupCurrentThread(uint32_t stack, uint32_t stackSize, uint32_
 int EeScheduler::createThread(const EeThreadCreateParams &params)
 {
     assertExecutor();
-    if (params.priority < 1 || params.priority >= kPriorityCount)
+    // El kernel real del EE acepta prioridades 0..127 (solo rechaza >= 128);
+    // KOF 2002 UM, por ejemplo, crea sus hilos con prioridad 0 y luego la cambia.
+    if (params.priority < 0 || params.priority >= kPriorityCount)
     {
         return KE_ILLEGAL_PRIORITY;
     }
@@ -701,7 +706,7 @@ int EeScheduler::cancelWakeup(int id)
 int EeScheduler::changePriority(int id, int priority, bool interruptSafe, int &oldPriority)
 {
     assertExecutor();
-    if (priority < 1 || priority >= kPriorityCount)
+    if (priority < 0 || priority >= kPriorityCount)
     {
         return KE_ILLEGAL_PRIORITY;
     }
@@ -1102,6 +1107,21 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
 {
     assertExecutor();
     invocation.sequence = ++m_invocationSequence;
+    {
+        static const bool trace = []()
+        {
+            const char *v = std::getenv("PS2X_TRACE_SYSCALLS");
+            return v && v[0] == '1';
+        }();
+        static std::map<uint32_t, int> seen;
+        if (trace && seen[invocation.context.pc]++ < 3)
+        {
+            std::cerr << "[trace-invoke] kind=" << static_cast<int>(invocation.kind) << " pc=0x" << std::hex
+                      << invocation.context.pc << " a0=0x" << getRegU32(&invocation.context, 4)
+                      << " a1=0x" << getRegU32(&invocation.context, 5) << " a2=0x" << getRegU32(&invocation.context, 6)
+                      << std::dec << std::endl;
+        }
+    }
     m_pendingInvocations.push_back(std::move(invocation));
     m_checkpointPending.store(true, std::memory_order_release);
 }

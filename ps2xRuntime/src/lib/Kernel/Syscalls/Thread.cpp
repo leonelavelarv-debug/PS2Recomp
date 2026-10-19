@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <iostream>
 #include "Common.h"
 #include "Thread.h"
 #include "runtime/ee_scheduler.h"
@@ -127,6 +129,16 @@ namespace ps2_syscalls
             ee.transferIfRequested(interruptSafe);
         }
 
+        bool threadTraceEnabled()
+        {
+            static const bool enabled = []()
+            {
+                const char *v = std::getenv("PS2X_TRACE_SYSCALLS");
+                return v && v[0] == '1';
+            }();
+            return enabled;
+        }
+
         void wakeupThreadImpl(uint8_t *rdram,
                               R5900Context *ctx,
                               PS2Runtime *runtime,
@@ -134,6 +146,15 @@ namespace ps2_syscalls
         {
             EeScheduler &ee = scheduler(rdram, ctx, runtime);
             const int result = ee.wakeupThread(static_cast<int>(getRegU32(ctx, 4)), interruptSafe);
+            if (threadTraceEnabled())
+            {
+                static int logged = 0;
+                if (logged++ < 120)
+                {
+                    std::cerr << "[trace-thread] wakeup id=" << static_cast<int>(getRegU32(ctx, 4))
+                              << " isr=" << interruptSafe << " -> " << result << std::endl;
+                }
+            }
             setReturnS32(ctx, result);
             ee.transferIfRequested(interruptSafe);
         }
@@ -230,7 +251,14 @@ namespace ps2_syscalls
             param->initial_priority,
             param->option,
         };
-        setReturnS32(ctx, scheduler(rdram, ctx, runtime).createThread(decoded));
+        const int createdId = scheduler(rdram, ctx, runtime).createThread(decoded);
+        if (threadTraceEnabled())
+        {
+            std::cerr << "[trace-thread] create entry=0x" << std::hex << param->func << std::dec
+                      << " prio=" << param->initial_priority << " stack=0x" << std::hex << param->stack
+                      << std::dec << " size=" << param->stack_size << " -> " << createdId << std::endl;
+        }
+        setReturnS32(ctx, createdId);
     }
 
     void DeleteThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -342,6 +370,14 @@ namespace ps2_syscalls
         const GuestThread *thread = ee.thread(id);
         if (!thread)
         {
+            if (threadTraceEnabled())
+            {
+                static int logged = 0;
+                if (logged++ < 10)
+                {
+                    std::cerr << "[trace-thread] refer UNKNOWN id=" << id << " cur=" << ee.currentThreadId() << std::endl;
+                }
+            }
             setReturnS32(ctx, KE_UNKNOWN_THID);
             return;
         }
@@ -364,6 +400,15 @@ namespace ps2_syscalls
         status->waitType = rawWaitType(thread->wait.reason);
         status->waitId = waitId(*thread);
         status->wakeupCount = thread->wakeupCount;
+        if (threadTraceEnabled())
+        {
+            static int logged = 0;
+            if (logged++ < 40)
+            {
+                std::cerr << "[trace-thread] refer id=" << id << " status=" << status->status
+                          << " waitType=" << status->waitType << " cur=" << ee.currentThreadId() << std::endl;
+            }
+        }
         setReturnS32(ctx, KE_OK);
     }
 
@@ -375,6 +420,15 @@ namespace ps2_syscalls
     void SleepThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         EeScheduler &ee = scheduler(rdram, ctx, runtime);
+        if (threadTraceEnabled())
+        {
+            static int logged = 0;
+            if (logged++ < 60)
+            {
+                std::cerr << "[trace-thread] sleep id=" << ee.currentThreadId() << " ra=0x" << std::hex
+                          << getRegU32(ctx, 31) << std::dec << std::endl;
+            }
+        }
         ee.sleepCurrent();
         setReturnS32(ctx, KE_OK);
     }

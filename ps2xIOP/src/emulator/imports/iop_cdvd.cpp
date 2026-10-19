@@ -1,3 +1,5 @@
+#include <iostream>
+#include <cstdlib>
 #include "iop_cdvd.h"
 
 #include "../core/iop_cpu.h"
@@ -601,6 +603,12 @@ namespace ps2x::iop::detail
 
             const std::string guestPath = memory.readString(nameAddress, 1024u);
             IsoNode *node = findVirtualIsoNode(guestPath);
+            if (cdTraceEnabled())
+            {
+                std::cerr << "[trace-cd] search \"" << guestPath << "\" -> "
+                          << (node ? "ok lsn=" + std::to_string(node->lsn) + " size=" + std::to_string(node->size) : std::string("NO ENCONTRADO"))
+                          << std::endl;
+            }
             if (!node)
                 return false;
 
@@ -651,8 +659,24 @@ namespace ps2x::iop::detail
             return host.readHostFile(node->handle, offset, destination, wanted, bytesRead) && bytesRead == wanted;
         }
 
+        static bool cdTraceEnabled()
+        {
+            static const bool enabled = []()
+            {
+                const char *v = std::getenv("PS2X_TRACE_CD");
+                return v && v[0] == '1';
+            }();
+            return enabled;
+        }
+
         bool readSectors(uint32_t lsn, uint32_t sectors, uint32_t destination)
         {
+            if (cdTraceEnabled())
+            {
+                IsoNode *traceNode = fileForSector(lsn);
+                std::cerr << "[trace-cd] read lsn=" << lsn << " n=" << sectors << " file="
+                          << (traceNode ? traceNode->hostPath.filename().string() : std::string("-")) << std::endl;
+            }
             if (sectors == 0u)
             {
                 lastError = kCdvdErrorNone;
