@@ -4,6 +4,10 @@
 
 Also check our [WIKI](https://github.com/ran-j/PS2Recomp/wiki)
 
+> **Fork note — Anbernic RG35XX H (KNULLI / PortMaster):** this fork adds a native
+> aarch64 target for the RG35XX H. See [`rg35xxh/LEEME.md`](rg35xxh/LEEME.md) (Spanish)
+> for the full workflow: `./rg35xxh/build.sh` and `./rg35xxh/package.sh`.
+
 
 This project statically recompiles PS2 ELF binaries into C++ and provides a runtime to execute the generated code.
 

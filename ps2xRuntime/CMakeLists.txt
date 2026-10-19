@@ -16,6 +16,7 @@ option(PS2X_ENABLE_IOP_RPC_TRACE "Log unhandled IOP/SIF RPC trace suggestions" O
 option(PS2X_STRICT_RETURN_DIAGNOSTICS "Route generated JR $ra returns through runtime branch diagnostics" OFF)
 option(PS2X_SHOW_WINDOWS_CONSOLE "Show a console window for ps2EntryRunner on Windows release builds" ON)
 option(PS2X_ENABLE_DEBUG_UI "Build the desktop runtime debug UI" ON)
+option(PS2X_ENABLE_IPO "Use link-time optimization (LTO) in release builds" ON)
 
 if(PS2X_ENABLE_SCCACHE)
     find_program(PS2X_SCCACHE_PROGRAM sccache)
@@ -73,6 +74,14 @@ else()
 
     if(PS2X_IS_ANDROID)
         set(PLATFORM "Android" CACHE STRING "" FORCE)
+    endif()
+
+    if(PS2X_TARGET_RG35XXH)
+        # KNULLI ships SDL2 built for the Mali GPU (KMSDRM/fbdev) and the
+        # built-in gamepad. raylib on top of SDL2 + OpenGL ES 2.0 uses it as-is.
+        set(PLATFORM "SDL" CACHE STRING "" FORCE)
+        set(OPENGL_VERSION "ES 2.0" CACHE STRING "" FORCE)
+        set(USE_EXTERNAL_GLFW OFF CACHE STRING "" FORCE)
     endif()
 
     FetchContent_Declare(
@@ -236,6 +245,13 @@ if(PS2X_IS_VITA)
     )
 else()
     target_link_libraries(ps2_host_backend INTERFACE raylib)
+
+    if(PS2X_TARGET_RG35XXH)
+        target_compile_definitions(ps2_host_backend INTERFACE PLATFORM_RG35XXH=1)
+        # glibc < 2.34 keeps dlopen/pthread in separate libraries
+        find_package(Threads REQUIRED)
+        target_link_libraries(ps2_host_backend INTERFACE ${CMAKE_DL_LIBS} Threads::Threads m)
+    endif()
 
     if(PS2X_IS_ANDROID)
         target_link_libraries(ps2_host_backend INTERFACE log android)
@@ -589,6 +605,20 @@ endif()
 
 if(PS2X_IS_ANDROID)
     target_sources(ps2EntryRunner PRIVATE src/lib/ps2_android_runtime.cpp)
+endif()
+
+if(PS2X_TARGET_RG35XXH)
+    # Port layout: <port>/ps2EntryRunner + <port>/libs/*.so (optional extras)
+    set_target_properties(ps2EntryRunner PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/libs"
+    )
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" AND CMAKE_STRIP)
+        add_custom_command(TARGET ps2EntryRunner POST_BUILD
+            COMMAND "${CMAKE_STRIP}" --strip-unneeded "$<TARGET_FILE:ps2EntryRunner>"
+            VERBATIM
+        )
+    endif()
 endif()
 
 install(TARGETS ps2_runtime ps2EntryRunner

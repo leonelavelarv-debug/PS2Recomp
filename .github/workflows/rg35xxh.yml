@@ -1,0 +1,41 @@
+name: rg35xxh
+
+# Compila el runtime para Anbernic RG35XX H (KNULLI/PortMaster) sin código de
+# ningún juego, para comprobar que el target sigue compilando.
+# NUNCA subas al repo el código generado de un juego comercial.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rg35xxh-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xz-utils zip
+
+      - name: Cache toolchain + SDL2
+        uses: actions/cache@v4
+        with:
+          path: rg35xxh/.deps
+          key: rg35xxh-deps-${{ hashFiles('rg35xxh/setup.sh', 'rg35xxh/cmake/rg35xxh-toolchain.cmake') }}
+
+      - name: Build
+        run: ./rg35xxh/build.sh
+
+      - name: Package
+        run: ./rg35xxh/package.sh "PS2Recomp Runtime" SLUS_000.00 ps2recomp-runtime
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: PS2Recomp - RG35XX H runtime
+          path: dist-rg35xxh/*.zip

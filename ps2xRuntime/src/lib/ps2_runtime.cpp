@@ -26,6 +26,9 @@
 #include <thread>
 #include <unordered_map>
 #include <sstream>
+#include <cmath>
+#include <cstdlib>
+#include <string>
 
 namespace ps2_stubs
 {
@@ -45,6 +48,10 @@ static constexpr uint32_t DEFAULT_FB_ADDR = (PS2_RAM_SIZE - DEFAULT_FB_SIZE - 0x
 #if defined(PLATFORM_VITA)
 static constexpr int HOST_WINDOW_WIDTH = 960;
 static constexpr int HOST_WINDOW_HEIGHT = 544;
+#elif defined(PLATFORM_RG35XXH)
+// Anbernic RG35XX H panel: 640x480 (4:3)
+static constexpr int HOST_WINDOW_WIDTH = 640;
+static constexpr int HOST_WINDOW_HEIGHT = 480;
 #else
 static constexpr int HOST_WINDOW_WIDTH = FB_WIDTH;
 static constexpr int HOST_WINDOW_HEIGHT = DEFAULT_DISPLAY_HEIGHT;
@@ -730,6 +737,14 @@ bool PS2Runtime::initialize(const char *title)
         }
 #if defined(PLATFORM_VITA)
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title); // raylib vita does not support audio
+#elif defined(PLATFORM_RG35XXH)
+        // KNULLI: SDL2 draws straight to the panel (KMSDRM/fbdev), always fullscreen.
+        SetConfigFlags(FLAG_FULLSCREEN_MODE | FLAG_VSYNC_HINT);
+        InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
+        HideCursor();
+        SetExitKey(KEY_NULL); // gptokeyb may emit ESC; quitting is handled by the hotkey
+        InitAudioDevice();
+        m_audioBackend.setAudioReady(IsAudioDeviceReady());
 #else
         SetConfigFlags(FLAG_WINDOW_RESIZABLE);
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
@@ -2362,6 +2377,32 @@ void PS2Runtime::run()
     Texture2D frameTex = LoadTextureFromImage(blank);
     UnloadImage(blank);
 
+#if defined(PLATFORM_RG35XXH)
+    // PS2X_SCALE: "fit" (default, keeps aspect), "stretch" (fill 640x480), "integer"
+    // PS2X_FILTER: "linear" for bilinear smoothing, anything else = nearest
+    enum class HandheldScale
+    {
+        Fit,
+        Stretch,
+        Integer
+    };
+    HandheldScale handheldScale = HandheldScale::Fit;
+    if (const char *scaleEnv = std::getenv("PS2X_SCALE"))
+    {
+        const std::string scaleMode(scaleEnv);
+        if (scaleMode == "stretch")
+            handheldScale = HandheldScale::Stretch;
+        else if (scaleMode == "integer")
+            handheldScale = HandheldScale::Integer;
+    }
+    if (const char *filterEnv = std::getenv("PS2X_FILTER"))
+    {
+        if (std::string(filterEnv) == "linear")
+            SetTextureFilter(frameTex, TEXTURE_FILTER_BILINEAR);
+    }
+    double exitComboSince = -1.0;
+#endif
+
     std::atomic<bool> gameThreadFinished{false};
 
     std::thread gameThread([&]()
@@ -2430,9 +2471,22 @@ void PS2Runtime::run()
         const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
         const float screenWidth = static_cast<float>(GetScreenWidth());
         const float screenHeight = static_cast<float>(GetScreenHeight());
-        const float scale = std::min(screenWidth / srcWidth, screenHeight / srcHeight);
-        const float dstWidth = srcWidth * scale;
-        const float dstHeight = srcHeight * scale;
+        float scale = std::min(screenWidth / srcWidth, screenHeight / srcHeight);
+        float dstWidth = srcWidth * scale;
+        float dstHeight = srcHeight * scale;
+#if defined(PLATFORM_RG35XXH)
+        if (handheldScale == HandheldScale::Stretch)
+        {
+            dstWidth = screenWidth;
+            dstHeight = screenHeight;
+        }
+        else if (handheldScale == HandheldScale::Integer && scale >= 1.0f)
+        {
+            scale = std::floor(scale);
+            dstWidth = srcWidth * scale;
+            dstHeight = srcHeight * scale;
+        }
+#endif
         const Rectangle srcRect{0.0f, 0.0f, srcWidth, srcHeight};
         const Rectangle dstRect{
             (screenWidth - dstWidth) * 0.5f,
@@ -2452,6 +2506,30 @@ void PS2Runtime::run()
             requestStop();
             break;
         }
+
+#if defined(PLATFORM_RG35XXH)
+        // Exit hotkey: hold MENU + START (or SELECT + START) for one second.
+        {
+            const bool startHeld = IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_RIGHT);
+            const bool menuHeld = IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE) ||
+                                  IsGamepadButtonDown(0, GAMEPAD_BUTTON_MIDDLE_LEFT);
+            if (startHeld && menuHeld)
+            {
+                if (exitComboSince < 0.0)
+                    exitComboSince = GetTime();
+                else if (GetTime() - exitComboSince >= 1.0)
+                {
+                    RUNTIME_LOG("[run] exit hotkey held, stopping");
+                    requestStop();
+                    break;
+                }
+            }
+            else
+            {
+                exitComboSince = -1.0;
+            }
+        }
+#endif
     }
 
     requestStop();

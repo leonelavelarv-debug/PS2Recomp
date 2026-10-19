@@ -23,3 +23,8 @@ android/app/.cxx/
 android/local.properties
 android/.gradle/ 
 .idea/
+# RG35XX H (KNULLI) build
+rg35xxh/.deps/
+out-rg35xxh/
+out-host/
+dist-rg35xxh/

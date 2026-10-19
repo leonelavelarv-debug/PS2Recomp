@@ -1,6 +1,9 @@
 #include "runtime/ps2_pad.h"
 #include "ps2_host_backend.h"
 #include <cstring>
+#if defined(PLATFORM_RG35XXH)
+#include <cstdlib>
+#endif
 
 namespace
 {
@@ -78,6 +81,14 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         if (IsGamepadButtonDown(kGamepad, GAMEPAD_BUTTON_RIGHT_THUMB))
             clearBit(PAD_R3);
 
+#if defined(PLATFORM_RG35XXH)
+        // Some SDL mappings expose L2/R2 only as trigger axes
+        if (GetGamepadAxisMovement(kGamepad, GAMEPAD_AXIS_LEFT_TRIGGER) > 0.3f)
+            clearBit(PAD_L2);
+        if (GetGamepadAxisMovement(kGamepad, GAMEPAD_AXIS_RIGHT_TRIGGER) > 0.3f)
+            clearBit(PAD_R2);
+#endif
+
         float lx = GetGamepadAxisMovement(kGamepad, GAMEPAD_AXIS_LEFT_X);
         float ly = GetGamepadAxisMovement(kGamepad, GAMEPAD_AXIS_LEFT_Y);
         float rx = GetGamepadAxisMovement(kGamepad, GAMEPAD_AXIS_RIGHT_X);
@@ -118,6 +129,27 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         if (IsKeyDown(KEY_TAB))
             clearBit(PAD_SELECT);
     }
+
+#if defined(PLATFORM_RG35XXH)
+    // PS2X_SWAP_FACE=1: swap Cross<->Circle and Square<->Triangle, for firmwares
+    // whose SDL mapping follows the A/B/X/Y labels instead of button position.
+    static const bool swapFace = []()
+    {
+        const char *env = std::getenv("PS2X_SWAP_FACE");
+        return env && env[0] == '1';
+    }();
+    if (swapFace)
+    {
+        auto swapBits = [&btns](uint16_t a, uint16_t b)
+        {
+            const bool aBit = (btns & a) != 0;
+            const bool bBit = (btns & b) != 0;
+            btns = static_cast<uint16_t>((btns & ~(a | b)) | (aBit ? b : 0) | (bBit ? a : 0));
+        };
+        swapBits(PAD_CROSS, PAD_CIRCLE);
+        swapBits(PAD_SQUARE, PAD_TRIANGLE);
+    }
+#endif
 
     data[2] = static_cast<uint8_t>(btns & 0xFF);
     data[3] = static_cast<uint8_t>(btns >> 8);

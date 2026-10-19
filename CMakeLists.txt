@@ -18,6 +18,7 @@ option(PS2X_BUILD_RUNTIME "Build ps2xRuntime" ON)
 option(PS2X_BUILD_ANALYZER "Build ps2xAnalyzer" ON)
 option(PS2X_BUILD_TEST "Build ps2xTest" ON)
 option(PS2X_BUILD_STUDIO "Build ps2xStudio" ON)
+option(PS2X_TARGET_RG35XXH "Build the runtime for Anbernic RG35XX H (KNULLI/PortMaster)" OFF)
 
 if(ANDROID)
     message(STATUS "Android target detected, building runtime only")
@@ -25,6 +26,22 @@ if(ANDROID)
     set(PS2X_BUILD_ANALYZER OFF)
     set(PS2X_BUILD_TEST OFF)
     set(PS2X_BUILD_STUDIO OFF)
+endif()
+
+if(PS2X_TARGET_RG35XXH)
+    # Handheld build: only the runtime runs on the device. The recompiler,
+    # analyzer and studio are host tools (build them for Windows/Linux PC).
+    message(STATUS "Anbernic RG35XX H target: building runtime only")
+    set(PS2X_BUILD_RECOMP OFF)
+    set(PS2X_BUILD_ANALYZER OFF)
+    set(PS2X_BUILD_TEST OFF)
+    set(PS2X_BUILD_STUDIO OFF)
+    # Lean defaults for a 1 GB / Cortex-A53 device (still overridable with -D)
+    set(PS2X_ENABLE_DEBUG_UI OFF CACHE BOOL "Build the desktop runtime debug UI")
+    set(PS2X_ENABLE_AGRESSIVE_LOGS OFF CACHE BOOL "Enable very verbose/agressive PS2 runtime logs")
+    set(PS2X_ENABLE_IOP_RPC_TRACE OFF CACHE BOOL "Log unhandled IOP/SIF RPC trace suggestions")
+    set(PS2X_ENABLE_FFMPEG OFF CACHE BOOL "Enable FFmpeg-backed MPEG video decoding")
+    set(PS2X_ENABLE_SCCACHE OFF CACHE BOOL "Use sccache as compiler launcher when available")
 endif()
 
 set(PS2X_IS_ARM_TARGET OFF)
@@ -62,6 +79,9 @@ if(PS2X_IS_ARM_TARGET)
     elseif(PS2X_IS_AARCH64_TARGET AND MSVC)
         # Windows ARM64 - MSVC already uses optimal defaults
         message(STATUS "Windows ARM64 (MSVC) - using default compiler flags")
+    elseif(PS2X_TARGET_RG35XXH)
+        # CPU flags (-mcpu=cortex-a53+crc+simd) come from rg35xxh-toolchain.cmake
+        message(STATUS "RG35XX H - Cortex-A53 flags from toolchain")
     elseif(PS2X_IS_AARCH64_TARGET)
         # Linux ARM64 - add NEON flags
         message(STATUS "Non-Apple ARM64 - adding NEON compiler flags")
